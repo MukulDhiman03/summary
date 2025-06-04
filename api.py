@@ -70,6 +70,15 @@ async def generate_summary(file: UploadFile = File(...), save_path: str = Form(.
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
 
+
+@app.get("/")
+def root():
+    return {"message": "✅ FastAPI backend is running!"}
+
+@app.get("/favicon.ico")
+async def favicon():
+    return {}
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("api:app", host="0.0.0.0", port=8000, reload=True)
