@@ -1,0 +1,5 @@
+__pycahce__/
+*.pyc
+.env
+env/
+db/
