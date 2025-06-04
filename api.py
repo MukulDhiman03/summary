@@ -2,11 +2,12 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form
 
-
+import tempfile
 from filepath_mapper import *
 from pdf_processor import *
 from query_handler import *
 from langchain_mistralai import ChatMistralAI, MistralAIEmbeddings
+
 
 app = FastAPI()
 
@@ -15,26 +16,18 @@ class SummaryRequest(BaseModel):
 
     
 @app.post("/generate_chapter_summary/")
+@app.post("/generate_chapter_summary/")
 async def generate_summary(file: UploadFile = File(...), save_path: str = Form(...)):
-    """
-    Takes a PDF file and database save path as input, returns summary as PPT
-    """
     try:
         # Validate file type
         if not file.filename.lower().endswith('.pdf'):
             raise HTTPException(status_code=400, detail="Only PDF files are supported")
         
+        # Create temp directory
+        temp_dir = tempfile.mkdtemp()
+        uploaded_file_path = os.path.join(temp_dir, file.filename)
         
-        # Create permanent path for the uploaded file in the specified directory
-        uploaded_file_path = os.path.join(os.getcwd(), "db", "raw_db", save_path)
-
-        if not os.path.exists(uploaded_file_path):
-            os.mkdir(uploaded_file_path)
-
-        uploaded_file_path = os.path.join(uploaded_file_path,  file.filename)
-
-        
-        # Save uploaded file to the specified path
+        # Save uploaded file to temp path
         with open(uploaded_file_path, "wb") as buffer:
             content = await file.read()
             buffer.write(content)
@@ -44,8 +37,8 @@ async def generate_summary(file: UploadFile = File(...), save_path: str = Form(.
             llm = ChatMistralAI(model="mistral-large-latest", temperature=0.1)
             emb_model = MistralAIEmbeddings()
             
-            # Initialize file mapper
-            file_mapper = FilePathMapper(base_dir=os.getcwd())
+            # Initialize file mapper with temp dir
+            file_mapper = FilePathMapper(base_dir=temp_dir)
             
             # Process PDF
             processor = MistralPDFProcessor(
@@ -60,16 +53,16 @@ async def generate_summary(file: UploadFile = File(...), save_path: str = Form(.
             handler = PromptQueryHandler(llm=llm, retriever=retriever, templates=template_dict)
             summary = handler.get_summary()
 
-            return(summary["summary"])
+            # Clean up temp files
+            os.remove(uploaded_file_path)
             
-            
+            return summary["summary"]
             
         except Exception as processing_error:
-            raise processing_error
+            raise HTTPException(status_code=500, detail=f"Processing error: {str(processing_error)}")
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing file: {str(e)}")
-
 
 @app.get("/")
 def root():
@@ -78,6 +71,29 @@ def root():
 @app.get("/favicon.ico")
 async def favicon():
     return {}
+
+
+class FilePathMapper:
+    def __init__(self, base_dir: str):
+        self.base_dir = base_dir
+        self.db_dir = "db"
+        self.raw_db_dir = "raw_db"
+        self.json_db_dir = "json_db"
+        self.faiss_db_dir = "faiss_db"
+        self.ppt_db_dir = "ppt_db"
+
+        # Construct full paths
+        self.faiss_db_dir_path = os.path.join(self.base_dir, self.db_dir, self.faiss_db_dir)
+        self.raw_db_dir_path = os.path.join(self.base_dir, self.db_dir, self.raw_db_dir)
+        self.json_db_dir_path = os.path.join(self.base_dir, self.db_dir, self.json_db_dir)
+        self.ppt_db_dir_path = os.path.join(self.base_dir, self.db_dir, self.ppt_db_dir)
+
+        # Create ALL required directories
+        for dir_path in [self.faiss_db_dir_path, 
+                        self.json_db_dir_path,
+                        self.raw_db_dir_path,
+                        self.ppt_db_dir_path]:
+            os.makedirs(dir_path, exist_ok=True)
 
 if __name__ == "__main__":
     import uvicorn
